@@ -1,0 +1,6 @@
+* Bootish (alpha)
+
+Boot as a library, to be used alongside ~clj~. Proof of concept. No filesets (yet), no pods.
+
+** Attribution
+The bulk of this code is copied directly from ~boot~. Thanks to Alan Dipert and Micha Niskin.
