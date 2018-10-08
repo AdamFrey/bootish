@@ -1,8 +1,10 @@
 (ns bootish.core
-  (:require [bootish.cli :as cli]
+  (:require [boot.cli :as cli]
+            [boot.core :as boot.core]
+            [boot.from.io.aviso.exception :as ex]
             [boot.from.clojure.tools.cli :as tools.cli]
+            [boot.util :as util]
             [bootish.tmpdir :as tmpd]
-            [bootish.util :as util]
             [clojure.set :as set]
             [clojure.string :as string])
   (:import [java.util.concurrent ExecutionException]))
@@ -26,9 +28,9 @@
        (when-let [existing-deftask# (resolve '~sym)]
          (when (= *ns* (-> existing-deftask# meta :ns))
            (let [msg# (delay (format "deftask %s/%s was overridden\n" *ns* '~sym))]
-             (bootish.util/warn (if (<= @util/*verbosity* 2)
-                                  @msg#
-                                  #_(ex/format-exception (Exception. ^String @msg#)))))))
+             (boot.util/warn (if (<= @util/*verbosity* 2)
+                               @msg#
+                               (ex/format-exception (Exception. ^String @msg#)))))))
        (cli/defclifn ~(vary-meta sym assoc ::task true)
          ~@heads
          ~bindings
@@ -42,14 +44,15 @@
 
 ;; Boot Lifecycle ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def new-fileset (memoize (fn [] {})))
 
-(defn commit!
-  "Make the underlying temp directories correspond to the immutable fileset
-  tree structure."
-  [fileset]
-  #_(util/with-semaphore tempdirs-lock
-      (tmpd/commit! fileset)))
+;; (prn "-------------------")
+;; (prn (.. ManagementFactory getRuntimeMXBean getName))
+
+(def new-fileset (memoize (fn [] {})))
+#_(def new-fileset boot.core/new-fileset)
+
+(defn commit! [x] x)
+#_(def commit! boot.core/commit!)
 
 (defn- sync-user-dirs!
   []
@@ -70,24 +73,12 @@
   [& [fileset]]
   (new-fileset)
   #_(let [fileset (when fileset (rm fileset (user-files fileset)))]
-    (-> (new-fileset)
-      (add-user-asset    (first (user-asset-dirs)))
-      (add-user-source   (first (user-source-dirs)))
-      (add-user-resource (first (user-resource-dirs)))
-      (update-in [:tree] merge (:tree fileset))
-      (vary-meta merge (meta fileset)))))
-
-(defn- take-subargs [open close [x & xs :as coll]]
-  (if (not= x open)
-    [nil coll]
-    (loop [[x & xs] xs depth 1 ret []]
-      (if (not x)
-        [ret []]
-        (cond (= x open)  (recur xs (inc depth) (conj ret x))
-              (= x close) (if (zero? (dec depth))
-                            [ret xs]
-                            (recur xs (dec depth) (conj ret x)))
-              :else       (recur xs depth (conj ret x)))))))
+      (-> (new-fileset)
+          (add-user-asset (first (user-asset-dirs)))
+          (add-user-source (first (user-source-dirs)))
+          (add-user-resource (first (user-resource-dirs)))
+          (update-in [:tree] merge (:tree fileset))
+          (vary-meta merge (meta fileset)))))
 
 (defn- construct-tasks
   "Given command line arguments (strings), constructs a task pipeline by
@@ -99,7 +90,7 @@
       (apply comp (filter fn? ret))
       (case op-str
         "--" (recur ret args)
-        "["  (let [[argv remainder] (take-subargs "[" "]" argv)]
+        "["  (let [[argv remainder] (#'boot.core/take-subargs "[" "]" argv)]
                (recur (conj ret (construct-tasks argv :in-order false)) remainder))
         (let [op (resolve (symbol (str ns) op-str))]
           (when-not (and op (::task (meta op)))
